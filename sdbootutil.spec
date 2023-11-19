@@ -107,6 +107,7 @@ sdbootutil update
 %files
 %license LICENSE
 %{_bindir}/sdbootutil
+%dir %{_localstatedir}/lib/sdbootutil
 %dir %{_localstatedir}/lib/sdbootutil/initrds
 
 %files rpm-scriptlets
