@@ -13,6 +13,8 @@ nl=$'\n'
 shimdir="/usr/share/efi/$(uname -m)"
 sdboot_vendor="systemd"
 sdboot_dst="/EFI/$sdboot_vendor"
+uki_dst="/EFI/Linux"
+uki_initrd_dir="/var/lib/sdbootutil/intrds"
 arg_esp_path="$SYSTEMD_ESP_PATH"
 arg_entry_token=
 arg_arch=
@@ -20,6 +22,9 @@ arg_no_variables=
 arg_no_reuse_initrd=
 # for x in vmlinuz image vmlinux linux bzImage uImage Image zImage; do
 image=vmlinuz
+
+#TODO read from config file and validate choices (should only be "uki" or "legacy" (name TBD))
+format=uki
 
 rollback=()
 
@@ -285,10 +290,40 @@ set_snapper_title_and_sortkey()
 }
 
 reuse_initrd() {
+	[ -z "$arg_no_reuse_initrd" ] || return 1
+	if [ "$format" == "uki" ]; then
+		reuse_initrd_uki "$@"
+	else
+		reuse_initrd_legacy "$@"
+	fi
+}
+
+
+reuse_initrd_uki() {
 	local snapshot="${1:?}"
 	local subvol="${2:?}"
 
-	[ -z "$arg_no_reuse_initrd" ] || return 1
+	local ptr="${uki_initrd_dir}/initrd-ptr-${entry_token}-${kernel_version}-${snapshot}"
+	if [ -e "$ptr" ]; then
+		dstinitrd=$(cat "$ptr")
+		log_info "found existing initrd ${dstinitrd}"
+		return 0
+	fi
+
+	detect_parent "$subvol"
+	local parent_ptr="${uki_initrd_dir}/initrd-ptr-${entry_token}-${kernel_version}-${parent_snapshot}"
+	if [ -n "$parent_subvol" ] && [ -e "$parent_ptr" ]; then
+		dstinitrd=$(cat "$conf")
+		log_info "found parent initrd ${dstinitrd}"
+		return 0
+	fi
+
+	return 1
+}
+
+reuse_initrd_legacy() {
+	local snapshot="${1:?}"
+	local subvol="${2:?}"
 
 	local conf="$boot_root/loader/entries/$entry_token-$kernel_version-$snapshot.conf"
 	if [ -e "$conf" ]; then
@@ -362,7 +397,11 @@ install_kernel()
 
 	if [ -z "$dstinitrd" ] && [ -e "$tmpdir/initrd" ]; then
 		calc_chksum "$tmpdir/initrd"
-		dstinitrd="${dst%/*}/initrd-$chksum"
+		if [[ "$format" == "uki" ]]; then
+			dstinitrd="${uki_initrd_dir}/initrd-$chksum"
+		else
+			dstinitrd="${dst%/*}/initrd-$chksum"
+		fi
 	fi
 
 	title="${os_release_PRETTY_NAME:-Linux $kernel_version}"
@@ -378,28 +417,58 @@ install_kernel()
 	local entry_machine_id=
 	[ "$entry_token" = "$machine_id" ] && entry_machine_id="$machine_id"
 
-	cat > "$tmpdir/entry.conf" <<-EOF
-	# Boot Loader Specification type#1 entry
-	title      $title
-	version    $snapshot@$kernel_version${entry_machine_id:+${nl}machine-id $entry_machine_id}${sort_key:+${nl}sort-key   $sort_key}
-	options    $boot_options
-	linux      $dst
-	initrd     $dstinitrd
-	EOF
+	if [[ "$format" == "uki" ]]; then
+		/usr/lib/systemd/ukify build \
+			--linux "$src" \
+			--initrd "${tmpdir}/initrd" \
+			--cmdline "$boot_options" \
+			--output "${tmpdir}/uki.efi"
 
-	local failed=
-	if [ ! -e "$boot_root$dst" ]; then
-		install_with_rollback "$src" "$boot_root$dst" || failed=kernel
+		dstuki="${uki_dst}/${entry_token}-${kernel_version}-${snapshot}.efi"
+
+		cat > "$tmpdir/entry.conf" <<-EOF
+		# Boot Loader Specification type#1 entry
+		title      $title
+		version    $snapshot@$kernel_version${entry_machine_id:+${nl}machine-id $entry_machine_id}${sort_key:+${nl}sort-key   $sort_key}
+		efi        $dstuki
+		EOF
+
+		local failed=
+		install_with_rollback "${tmpdir}/uki.efi" "$boot_root$dstuki" || failed=UKI
+		if [ -z "$failed" ] && [ -e "$tmpdir/initrd" ] && [ ! -e "$dstinitrd" ]; then
+			install_with_rollback "$tmpdir/initrd" "$dstinitrd" || failed=initrd
+		fi
+		if [ -z "$failed" ]; then
+			loader_entry="$boot_root/loader/entries/$entry_token-$kernel_version-$snapshot.conf"
+			install_with_rollback "$tmpdir/entry.conf" "$loader_entry" || failed="bootloader entry"
+		fi
+
+		rm -f "${tmpdir}/uki.efi"
 	else
-		log_info "reusing $boot_root$dst"
+		cat > "$tmpdir/entry.conf" <<-EOF
+		# Boot Loader Specification type#1 entry
+		title      $title
+		version    $snapshot@$kernel_version${entry_machine_id:+${nl}machine-id $entry_machine_id}${sort_key:+${nl}sort-key   $sort_key}
+		options    $boot_options
+		linux      $dst
+		initrd     $dstinitrd
+		EOF
+
+		local failed=
+		if [ ! -e "$boot_root$dst" ]; then
+			install_with_rollback "$src" "$boot_root$dst" || failed=kernel
+		else
+			log_info "reusing $boot_root$dst"
+		fi
+		if [ -z "$failed" ] && [ -e "$tmpdir/initrd" ] && [ ! -e "$boot_root$dstinitrd" ]; then
+			install_with_rollback "$tmpdir/initrd" "$boot_root$dstinitrd" || failed=initrd
+		fi
+		if [ -z "$failed" ]; then
+			loader_entry="$boot_root/loader/entries/$entry_token-$kernel_version-$snapshot.conf"
+			install_with_rollback "$tmpdir/entry.conf" "$loader_entry" || failed="bootloader entry"
+		fi
 	fi
-	if [ -z "$failed" ] && [ -e "$tmpdir/initrd" ] && [ ! -e "$boot_root$dstinitrd" ]; then
-		install_with_rollback "$tmpdir/initrd" "$boot_root$dstinitrd" || failed=initrd
-	fi
-	if [ -z "$failed" ]; then
-		loader_entry="$boot_root/loader/entries/$entry_token-$kernel_version-$snapshot.conf"
-		install_with_rollback "$tmpdir/entry.conf" "$loader_entry" || failed="bootloader entry"
-	fi
+
 	rm -f "$tmpdir/initrd"
 	rm -f "$tmpdir/entry.conf"
 	[ -z "$failed" ] || err "Failed to install $failed"
