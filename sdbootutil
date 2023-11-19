@@ -14,7 +14,7 @@ shimdir="/usr/share/efi/$(uname -m)"
 sdboot_vendor="systemd"
 sdboot_dst="/EFI/$sdboot_vendor"
 uki_dst="/EFI/Linux"
-uki_initrd_dir="/var/lib/sdbootutil/intrds"
+uki_initrd_dir="/var/lib/sdbootutil/initrds"
 arg_esp_path="$SYSTEMD_ESP_PATH"
 arg_entry_token=
 arg_arch=
@@ -433,8 +433,10 @@ install_kernel()
 		efi        $dstuki
 		EOF
 
+		install -D "${boot_root}${uki_dst}"
+
 		local failed=
-		install_with_rollback "${tmpdir}/uki.efi" "$boot_root$dstuki" || failed=UKI
+		install_with_rollback "${tmpdir}/uki.efi" "${boot_root}${dstuki}" || failed=UKI
 		if [ -z "$failed" ] && [ -e "$tmpdir/initrd" ] && [ ! -e "$dstinitrd" ]; then
 			install_with_rollback "$tmpdir/initrd" "$dstinitrd" || failed=initrd
 		fi
