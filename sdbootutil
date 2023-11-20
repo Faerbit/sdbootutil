@@ -418,11 +418,17 @@ install_kernel()
 	[ "$entry_token" = "$machine_id" ] && entry_machine_id="$machine_id"
 
 	if [[ "$format" == "uki" ]]; then
-		/usr/lib/systemd/ukify build \
-			--linux "$src" \
-			--initrd "${tmpdir}/initrd" \
-			--cmdline "$boot_options" \
+		ukify_args=()
+		if [ -f "/etc/kernel/uki.conf" ]; then
+			ukify_args+=(--config "/etc/kernel/uki.conf")
+		fi
+		ukify_args+=(
+			--linux "$src"
+			--initrd "${tmpdir}/initrd"
+			--cmdline "$boot_options"
 			--output "${tmpdir}/uki.efi"
+		)
+		/usr/lib/systemd/ukify build "${ukify_args[@]}"
 
 		dstuki="${uki_dst}/${entry_token}-${kernel_version}-${snapshot}.efi"
 
