@@ -399,6 +399,7 @@ install_kernel()
 		calc_chksum "$tmpdir/initrd"
 		if [[ "$format" == "uki" ]]; then
 			dstinitrd="${uki_initrd_dir}/initrd-$chksum"
+			echo "$dstinitrd" > "${tmpdir}/initrd-ptr"
 		else
 			dstinitrd="${dst%/*}/initrd-$chksum"
 		fi
@@ -443,14 +444,18 @@ install_kernel()
 
 		local failed=
 		install_with_rollback "${tmpdir}/uki.efi" "${boot_root}${dstuki}" || failed=UKI
-		if [ -z "$failed" ] && [ -e "$tmpdir/initrd" ] && [ ! -e "$dstinitrd" ]; then
-			install_with_rollback "$tmpdir/initrd" "$dstinitrd" || failed=initrd
+		if [ -z "$failed" ] && [ -e "${tmpdir}/initrd" ] && [ ! -e "$dstinitrd" ]; then
+			install_with_rollback "${tmpdir}/initrd" "$dstinitrd" || failed=initrd
+			if [ -z "$failed" ]; then
+				install_with_rollback "${tmpdir}/initrd-ptr" "${uki_initrd_dir}/initrd-ptr-${entry_token}-${kernel_version}-${snapshot}" || failed="initrd-ptr"
+			fi
 		fi
 		if [ -z "$failed" ]; then
 			loader_entry="$boot_root/loader/entries/$entry_token-$kernel_version-$snapshot.conf"
 			install_with_rollback "$tmpdir/entry.conf" "$loader_entry" || failed="bootloader entry"
 		fi
 
+		rm -f "${tmpdir}/initrd-ptr"
 		rm -f "${tmpdir}/uki.efi"
 	else
 		cat > "$tmpdir/entry.conf" <<-EOF
