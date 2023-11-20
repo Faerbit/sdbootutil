@@ -74,6 +74,7 @@ kernels are installed or removed
 
 %install
 install -D -m 755 sdbootutil %{buildroot}%{_bindir}/sdbootutil
+install -D -m 644 sdbootutil.conf %{buildroot}%{_sysconfdir}/sdbootutil.conf
 mkdir -p %{buildroot}%{_localstatedir}/lib/sdbootutil/initrds
 %ifarch aarch64
     sed -i -e 's/^image=vmlinuz/image=Image/' %{buildroot}%{_bindir}/sdbootutil
@@ -107,6 +108,7 @@ sdbootutil update
 %files
 %license LICENSE
 %{_bindir}/sdbootutil
+%{_sysconfdir}/sdbootutil.conf
 %dir %{_localstatedir}/lib/sdbootutil
 %dir %{_localstatedir}/lib/sdbootutil/initrds
 

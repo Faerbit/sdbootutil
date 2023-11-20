@@ -16,6 +16,7 @@ sdboot_dst="/EFI/$sdboot_vendor"
 uki_dst="/EFI/Linux"
 uki_initrd_dir="/var/lib/sdbootutil/initrds"
 arg_esp_path="$SYSTEMD_ESP_PATH"
+config_file="/etc/sdbootutil.conf"
 arg_entry_token=
 arg_arch=
 arg_no_variables=
@@ -23,8 +24,13 @@ arg_no_reuse_initrd=
 # for x in vmlinuz image vmlinux linux bzImage uImage Image zImage; do
 image=vmlinuz
 
-#TODO read from config file and validate choices (should only be "uki" or "legacy" (name TBD))
-format=uki
+source "$config_file"
+
+layout="${layout:-initrd}"
+if [[ "$layout" != "uki" && "$layout" != "initrd" ]]; then
+	echo "Invalid choice for \"layout\" in ${config_file}. Only \"initrd\" or \"uki\" allowed"
+	exit 1
+fi
 
 rollback=()
 
@@ -291,7 +297,7 @@ set_snapper_title_and_sortkey()
 
 reuse_initrd() {
 	[ -z "$arg_no_reuse_initrd" ] || return 1
-	if [ "$format" == "uki" ]; then
+	if [ "$layout" == "uki" ]; then
 		reuse_initrd_uki "$@"
 	else
 		reuse_initrd_legacy "$@"
@@ -397,7 +403,7 @@ install_kernel()
 
 	if [ -z "$dstinitrd" ] && [ -e "$tmpdir/initrd" ]; then
 		calc_chksum "$tmpdir/initrd"
-		if [[ "$format" == "uki" ]]; then
+		if [[ "$layout" == "uki" ]]; then
 			dstinitrd="${uki_initrd_dir}/initrd-$chksum"
 			echo "$dstinitrd" > "${tmpdir}/initrd-ptr"
 		else
@@ -418,7 +424,7 @@ install_kernel()
 	local entry_machine_id=
 	[ "$entry_token" = "$machine_id" ] && entry_machine_id="$machine_id"
 
-	if [[ "$format" == "uki" ]]; then
+	if [[ "$layout" == "uki" ]]; then
 		ukify_args=()
 		if [ -f "/etc/kernel/uki.conf" ]; then
 			ukify_args+=(--config "/etc/kernel/uki.conf")
