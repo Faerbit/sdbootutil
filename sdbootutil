@@ -433,7 +433,7 @@ install_kernel()
 		efi        $dstuki
 		EOF
 
-		install -D "${boot_root}${uki_dst}"
+		install -d "${boot_root}${uki_dst}"
 
 		local failed=
 		install_with_rollback "${tmpdir}/uki.efi" "${boot_root}${dstuki}" || failed=UKI
