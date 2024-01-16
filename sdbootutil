@@ -238,11 +238,60 @@ sedrootflags()
 
 remove_kernel()
 {
+	if [ "$layout" == "uki" ]; then
+		remove_kernel_uki "$@"
+	else
+		remove_kernel_legacy "$@"
+	fi
+}
+
+remove_kernel_id()
+{
+	if [ "$layout" == "uki" ]; then
+		remove_kernel_uki_id "$@"
+	else
+		remove_kernel_legacy_id "$@"
+	fi
+}
+
+remove_kernel_uki()
+{
+	local subvol="$1"
+	local kernel_version="$2"
+	local snapshot="${subvol#@/.snapshots/}"
+	snapshot="${snapshot%/*}"
+	local id="$entry_token-$kernel_version-$snapshot"
+	remove_kernel_uki_id "$id"
+}
+
+remove_kernel_uki_id()
+{
+	local id="$1"
+	run_command_output bootctl unlink "${id}.conf"
+	# should be remove automatically but somehow it doesn't
+	run_command_output bootctl unlink "${id}.efi"
+
+	run_command_output rm -v "${uki_initrd_dir}/initrd-ptr-${id}"
+	for initrd in "${uki_initrd_dir}/initrd-"*; do
+		if ! grep -q "$initrd" "${uki_initrd_dir}/initrd-ptr-"*; then
+			run_command_output rm -v "${uki_initrd_dir}/${initrd}"
+		fi
+	done
+}
+
+remove_kernel_legacy()
+{
 	local subvol="$1"
 	local kernel_version="$2"
 	local snapshot="${subvol#@/.snapshots/}"
 	snapshot="${snapshot%/*}"
 	local id="$entry_token-$kernel_version-$snapshot.conf"
+	run_command_output bootctl unlink "$id"
+}
+
+remove_kernel_legacy_id()
+{
+	local id="$1"
 	run_command_output bootctl unlink "$id"
 }
 
@@ -622,7 +671,7 @@ show_entry()
 				;;
 			delete)
 				read -r id < <(jq -r "$filter|.id" < "$entryfile")
-				bootctl unlink "$id" > "$tmpfile" 2>&1
+				remove_kernel_id "$id" > "$tmpfile" 2>&1
 				[ -s "$tmpfile" ] && d --textbox "$tmpfile" 0 0
 				update_entries
 				break
